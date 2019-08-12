@@ -1,0 +1,648 @@
+
+
+CREATE OR REPLACE DIRECTORY IMAGES AS 'C:\app\ouser\oradata\orcl\pdbkarp\Images';
+
+CREATE OR REPLACE PROCEDURE KARP.Добавить_планету(
+      ид_план in number, имя in nvarchar2, имя_осн_план in nvarchar2,
+      имя_сист in nvarchar2, ид_вид in number, имя_гос in nvarchar2,
+      коорд in nvarchar2, ур_пригодн in number, насел in number default 0,
+      радиус in number, масса in number, период_вращ in number,
+      имя_изобр in nvarchar2, состояние in nvarchar2 default 'не установлено')
+    is
+      table_blob blob;
+      img_file bfile := null;
+      lenght integer;
+      id_osn_plan number := null;
+      id_system number := null;
+      id_gos number := null;
+    begin
+      savepoint sv1;
+      if (имя_осн_план is not null)
+        then SELECT ид_планеты INTO id_osn_plan FROM KARP.Планеты WHERE имя = имя_осн_план;
+      end if;
+      if (имя_сист is not null)
+        then SELECT ид_системы INTO id_system FROM KARP.Планетные_системы WHERE название = имя_сист;
+      end if;
+      if (имя_гос is not null)
+        then SELECT ид_государства INTO id_gos FROM KARP.Государства WHERE название_государства = имя_гос;
+      end if;
+      INSERT INTO KARP.Планеты(ид_планеты, имя, ид_основной_планеты, ид_системы, ид_вида, ид_государства, координаты,
+        уровень_пригодности, население, радиус, масса, период_вращения, изображение, состояние) VALUES(
+        ид_план, имя, id_osn_plan, id_system, ид_вид, id_gos, коорд, ур_пригодн, насел, радиус, масса, период_вращ, EMPTY_BLOB, состояние)
+          returning изображение into table_blob;
+      img_file := bfilename('IMAGES', имя_изобр);
+      lenght := dbms_lob.getlength(img_file);
+      if (lenght = 0)
+        then dbms_output.put_line('Ошибка при вклюении ' || имя_изобр);
+      end if;
+      dbms_lob.fileopen(img_file);
+      dbms_lob.loadfromfile(table_blob, img_file, lenght);
+      dbms_lob.fileclose(img_file);
+      dbms_output.put_line('Добавлено: ' || имя);
+      commit;
+    exception
+      when others
+        then rollback to savepoint sv1;
+        if (img_file is not null)
+          then dbms_lob.fileclose(img_file);
+        end if;
+        dbms_output.put_line('Ошибка при добавлении: ' || имя);
+end Добавить_планету;
+
+CREATE OR REPLACE PROCEDURE KARP.Добавить_торговую_станцию(
+      ид_станц in number, торг_станц in nvarchar2, имя_план in nvarchar2,
+      сост_станц in nvarchar2 default 'в рабочем состоянии')
+    is
+      no_plan exception;
+      id_plan number := null;
+      rnd number;
+    begin
+      SELECT ид_планеты INTO id_plan FROM KARP.Планеты WHERE имя = имя_план;
+      if (id_plan is null)
+        then raise no_plan;
+      end if;
+      INSERT INTO KARP.Торговые_станции(ид_станции, торговая_станция,
+          состояние_станции, ид_планеты)
+          VALUES(ид_станц, торг_станц, сост_станц, id_plan);
+      rnd := round(dbms_random.value(100,10000));
+      UPDATE KARP.Планеты SET население = население + rnd WHERE ид_планеты = id_plan;
+      dbms_output.put_line('Добавлена станция "' || торг_станц || '" на планете ' || имя_план);
+    exception
+      when no_plan then
+        dbms_output.put_line('Не существует планеты: ' || имя_план);
+      when others then
+        dbms_output.put_line('Ошибка при добавлении: ' || торг_станц);
+end Добавить_торговую_станцию;
+
+CREATE OR REPLACE FUNCTION KARP.Существует_станция(имя_станц nvarchar2)
+  return number is
+      id_stan number := null;
+      cnt number;
+    begin
+      SELECT count(*) INTO cnt FROM KARP.Торговые_станции 
+        WHERE торговая_станция = имя_станц;
+      if (cnt = 1) then
+          SELECT ид_станции INTO id_stan FROM KARP.Торговые_станции
+            WHERE торговая_станция = имя_станц;
+      end if;
+      return id_stan;
+end Существует_станция;
+
+CREATE OR REPLACE FUNCTION KARP.Существует_ресурс(имя_рес nvarchar2)
+  return number is
+      id_res number := null;
+      cnt number;
+    begin
+      SELECT count(*) INTO cnt FROM KARP.База_ресурсов 
+        WHERE название_ресурса = имя_рес;
+      if (cnt = 1) then
+          SELECT ид_ресурса INTO id_res FROM KARP.База_ресурсов
+            WHERE название_ресурса = имя_рес;
+      end if;
+      return id_res;
+end Существует_ресурс;
+
+CREATE OR REPLACE FUNCTION KARP.Существует_планета(имя_план nvarchar2)
+  return number is
+      id_plan number := null;
+      cnt number;
+    begin
+      SELECT count(*) INTO cnt FROM KARP.Планеты 
+        WHERE имя = имя_план;
+      if (cnt = 1) then
+          SELECT ид_планеты INTO id_plan FROM KARP.Планеты
+            WHERE имя = имя_план;
+      end if;
+      return id_plan;
+end Существует_планета;
+
+CREATE OR REPLACE FUNCTION KARP.Существует_заказ(ид_станц number, ид_рес number)
+  return number is
+      id_stan number := null;
+      cnt number;
+    begin
+      SELECT count(*) INTO cnt FROM KARP.Торговые_предложения 
+        WHERE ид_ресурса = ид_рес and ид_станции = ид_станц;
+      if (cnt = 1) then
+          SELECT ид_предложения INTO id_stan FROM KARP.Торговые_предложения 
+        WHERE ид_ресурса = ид_рес and ид_станции = ид_станц;
+      end if;
+      return id_stan;
+end Существует_заказ;
+
+CREATE OR REPLACE PROCEDURE KARP.Разместить_торг_предл(
+      ид_предл in number, имя_станц in nvarchar2, имя_рес in nvarchar2,
+      покуп in number, стоим_покуп in number)
+    is
+      no_stan exception;
+      no_res exception;
+      stan_det  exception;
+      id_stan number := null;
+      id_res number := null;
+      id_pred number := null;
+      st_stat nvarchar2(50) := '';
+    begin
+      id_stan := Существует_станция(имя_станц);
+      id_res := Существует_ресурс(имя_рес);
+      if (id_stan is null)
+        then raise no_stan;
+      elsif (id_res is null)
+        then raise no_res;
+      end if;
+      SELECT состояние_станции INTO st_stat FROM KARP.Торговые_станции WHERE ид_станции = id_stan;
+      if (st_stat like '%заброшен%' or st_stat like '%разрушен%' or st_stat like '%уничтожен%'
+          or st_stat like '% не работ%' or st_stat like '% не функцион%')
+        then raise stan_det;
+      end if;
+      id_pred := Существует_заказ(id_stan, id_res);
+      if (id_pred is not null) then
+        begin
+          if (стоим_покуп = 0) then
+            UPDATE KARP.Торговые_предложения SET покупка = покупка + покуп
+                WHERE ид_предложения = id_pred;
+          else
+            UPDATE KARP.Торговые_предложения SET покупка = покупка + покуп,
+                стоимость_покупки = стоим_покуп WHERE ид_предложения = id_pred;
+          end if;
+          dbms_output.put_line('Обновлено торговое предложение станции ' 
+              || имя_станц || ' на ' || имя_рес);
+        end;
+      else
+        begin
+          INSERT INTO KARP.Торговые_предложения(ид_предложения, ид_станции,
+              ид_ресурса, покупка, стоимость_покупки)
+              VALUES(ид_предл, id_stan, id_res, покуп, стоим_покуп);
+          dbms_output.put_line('Сформировано торговое предложение станции ' 
+              || имя_станц || ' на ' || имя_рес);
+        end;
+      end if;
+    exception
+      when no_stan then
+        dbms_output.put_line('Не существует станции: ' || имя_станц);
+      when no_res then
+        dbms_output.put_line('Не существует ресурса: ' || имя_рес);
+      when stan_det then
+        dbms_output.put_line('Станция не функционирует: ' || имя_станц);
+      when others then
+        dbms_output.put_line('Ошибка при добавлении заказа ' || имя_станц || ' на ' || имя_рес);
+end Разместить_торг_предл;
+
+CREATE OR REPLACE PROCEDURE KARP.Открыть_месторождение(
+    ид_мест in number, имя_рес in nvarchar2, имя_план in nvarchar2) 
+    is
+      no_res exception;
+      no_plan exception;
+      bad_plan exception;
+      id_res number := null;
+      name_res nvarchar2(50);
+      id_plan number := null;
+      name_plan nvarchar2(50);
+      rnd_keep number;
+      res_type nvarchar2(15);
+      plan_type nvarchar2(50);
+      type vals is record
+        ( n_min number, n_max number );
+      extr vals;
+    begin
+      if (имя_рес is not null) then
+        begin
+          id_res := Существует_ресурс(имя_рес);
+          name_res := имя_рес;
+          if (id_res is null)
+            then raise no_res;
+          end if;
+        end;
+      else
+         begin
+          SELECT min(ид_ресурса), max(ид_ресурса) INTO extr FROM KARP.База_ресурсов;
+          id_res := round(dbms_random.value(extr.n_min, extr.n_max));
+          SELECT название_ресурса INTO name_res FROM KARP.База_ресурсов WHERE ид_ресурса = id_res;
+        end;
+      end if;
+      if (имя_план is not null) then
+        begin
+          id_plan := Существует_планета(имя_план);
+          name_plan := имя_план;
+          if (id_plan is null)
+            then raise no_plan;
+          end if;
+          SELECT т.наименование INTO plan_type FROM KARP.Планеты п
+            inner join KARP.Виды_небесных_тел т on п.ид_вида = т.ид_вида
+            WHERE п.ид_планеты = id_plan;
+          if (plan_type = 'черная дыра')
+            then raise bad_plan;
+          end if;
+        end;
+      else
+         begin
+          SELECT min(ид_планеты), max(ид_планеты) INTO extr FROM KARP.Планеты;
+          loop
+            id_plan := round(dbms_random.value(extr.n_min, extr.n_max));
+            SELECT т.наименование INTO plan_type FROM KARP.Планеты п
+              inner join KARP.Виды_небесных_тел т on п.ид_вида = т.ид_вида
+              WHERE п.ид_планеты = id_plan;
+            exit when plan_type not like 'черная дыра';
+          end loop;
+          SELECT имя INTO name_plan FROM KARP.Планеты WHERE ид_планеты = id_plan;
+        end;
+      end if;
+      SELECT тип_ресурса INTO res_type FROM KARP.База_ресурсов WHERE ид_ресурса = id_res;
+      case res_type
+        when 'акустика'  then rnd_keep := round(dbms_random.value(1,500));
+        when 'реликвия'  then rnd_keep := round(dbms_random.value(1,20));
+        when 'растительность'  then rnd_keep := round(dbms_random.value(100,100000));
+        when 'химикат'  then rnd_keep := round(dbms_random.value(1,100));
+        when 'энергетик'  then rnd_keep := round(dbms_random.value(100,6000));
+        else  rnd_keep := round(dbms_random.value(10,10000));
+      end case;
+      INSERT INTO KARP.Месторождения_ресурсов(ид_месторождения,
+          ид_ресурса, ид_планеты, потенциальный_запас)
+          VALUES(ид_мест, id_res, id_plan, rnd_keep);
+      dbms_output.put_line('Обнаружено месторождение ' || name_res || ' на планете ' || name_plan);
+    exception
+      when no_res then
+        dbms_output.put_line('Не существует ресурса: ' || имя_рес);
+      when no_plan then
+        dbms_output.put_line('Не существует планеты: ' || имя_план);
+      when bad_plan then
+        dbms_output.put_line('Данная планета(' || имя_план || ') не может содержать ресурс ' || имя_рес);
+      when others then
+        dbms_output.put_line('Ошибка при добавлении месторождения... ');
+end Открыть_месторождение;
+
+CREATE OR REPLACE FUNCTION KARP.Получить_ид_месторождения(имя_рес in number, имя_план in number)
+    return number is
+      id_mest number;
+    begin
+      SELECT м.ид_месторождения INTO id_mest FROM KARP.Месторождения_ресурсов м
+          inner join KARP.Планеты п on м.ид_планеты = п.ид_планеты
+          inner join KARP.База_ресурсов б on м.ид_ресурса = б.ид_ресурса
+        WHERE п.имя = имя_план and б.название_ресурса = имя_рес;
+      return id_mest;
+    exception
+      when no_data_found then
+        dbms_output.put_line('Указано несуществующее месторождение');
+        return -1;
+end Получить_ид_месторождения;
+
+CREATE OR REPLACE PROCEDURE KARP.Создать_добывателя(
+    ид_посел in number, ид_мест number, инфо nvarchar2 default 'отсутствует')
+    is
+      id_plan number;
+      w_num number;
+      res_type nvarchar2(15);
+      rnd_curr number;
+      n_all number;
+      name_plan nvarchar2(50);
+    begin
+      savepoint sv1;
+      SELECT ид_планеты, потенциальный_запас INTO id_plan, n_all FROM KARP.Месторождения_ресурсов WHERE ид_месторождения = ид_мест;
+      w_num := round(dbms_random.value(350, 25000));
+      INSERT INTO KARP.Добывающие_поселения(ид_поселения, ид_планеты, число_работников, информация)
+          VALUES (ид_посел, id_plan, w_num, инфо);
+      UPDATE KARP.Планеты SET население = население + w_num WHERE ид_планеты = id_plan;
+      rnd_curr := round(dbms_random.value(0, n_all / 2));
+      INSERT INTO KARP.Добыча_ресурсов(ид_добычи, ид_месторождения, ид_поселения, наличие)
+          VALUES (ДР_ид.nextval, ид_мест, ид_посел, rnd_curr);
+      SELECT имя INTO name_plan FROM KARP.Планеты WHERE ид_планеты = id_plan;
+      dbms_output.put_line('Рабочее поселение ' || ид_посел || ' создано на планете ' || name_plan);
+     exception
+      when no_data_found then
+        dbms_output.put_line('Указано несуществующее месторождение ' || ид_мест);
+        rollback to savepoint sv1;
+      when others then
+        dbms_output.put_line('Ошибка при создании добывающего поселения ' || ид_посел);
+        rollback to savepoint sv1;
+end Создать_добывателя;
+
+CREATE OR REPLACE FUNCTION KARP.Ид(сист in nvarchar2 default '-', вид in nvarchar2 default '-',
+    план in nvarchar2 default '-', гос in nvarchar2 default '-', рес in nvarchar2 default '-',
+    корб in nvarchar2 default '-', стан  in nvarchar2 default '-')
+    return number is
+      many_parm exception;
+      id_id number;
+    begin
+      if (сист != '-') then
+        SELECT ид_системы INTO id_id FROM KARP.Планетные_системы WHERE название = сист;
+      elsif (вид != '-') then
+        SELECT ид_вида INTO id_id FROM KARP.Виды_небесных_тел WHERE наименование = вид;
+      elsif (план != '-') then
+        SELECT ид_планеты INTO id_id FROM KARP.Планеты WHERE имя = план;
+      elsif (гос != '-') then
+        SELECT ид_государства INTO id_id FROM KARP.Государства WHERE название_государства = гос;
+      elsif (рес != '-') then
+        SELECT ид_ресурса INTO id_id FROM KARP.База_ресурсов WHERE название_ресурса = рес;
+      elsif (корб != '-') then
+        SELECT ид_корабля INTO id_id FROM KARP.Корабли_перевозчики WHERE имя_корабля = корб;
+      elsif (стан != '-') then
+        SELECT ид_станции INTO id_id FROM KARP.Торговые_станции WHERE торговая_станция = стан;
+      else
+        raise many_parm;
+      end if;
+      return id_id;
+    exception
+      when many_parm then
+        dbms_output.put_line('Данная функция принимает лишь 1 параметр');
+        return -1;
+      when no_data_found then
+        dbms_output.put_line('Элемента с указанным ид не существует');
+        return -1;
+end Ид;
+
+CREATE OR REPLACE PROCEDURE KARP.Расширить_добычу(
+  ид_посел in number, ид_мест in number)
+    is
+      no_posel exception;
+      no_mest exception;
+      bad_plan exception;
+      dubl_d exception;
+      exist_p number;
+      exist_m number;
+      tru_plan number;
+      dubl number;
+      id_mest number := null;
+      rnd_all number;
+      rnd_curr number;
+      name_res nvarchar2(50);
+    begin
+      SELECT count(*) INTO exist_p FROM KARP.Добывающие_поселения WHERE ид_поселения = ид_посел;
+      if (exist_p = 0)
+        then raise no_posel;
+      end if;
+      if (ид_мест is null) then
+        begin
+          SELECT min(ид_месторождения) INTO id_mest FROM (
+              SELECT ид_месторождения FROM KARP.Месторождения_ресурсов 
+                WHERE ид_планеты = (SELECT ид_планеты FROM KARP.Добывающие_поселения WHERE ид_поселения = ид_посел)
+              minus
+              SELECT ид_месторождения FROM KARP.Добыча_ресурсов WHERE ид_поселения = ид_посел);
+        end;
+      else
+        begin
+          SELECT count(*) INTO exist_m FROM KARP.Месторождения_ресурсов WHERE ид_месторождения = ид_мест;
+          if (exist_m = 0)
+            then raise no_mest;
+          end if;
+          SELECT count(*) INTO tru_plan FROM KARP.Добывающие_поселения д
+            inner join (SELECT ид_планеты FROM KARP.Месторождения_ресурсов WHERE ид_месторождения = ид_мест) м
+              on д.ид_планеты = м.ид_планеты
+            WHERE д.ид_поселения = ид_посел;
+          if (tru_plan = 0)
+            then raise bad_plan;
+          end if;
+          id_mest := ид_мест;
+        end;
+      end if;
+      SELECT count(*) INTO dubl FROM KARP.Добыча_ресурсов
+        WHERE ид_поселения = ид_посел and ид_месторождения = id_mest;
+      if (dubl != 0)
+        then raise dubl_d;
+      end if;
+      SELECT потенциальный_запас INTO rnd_all FROM KARP.Месторождения_ресурсов WHERE ид_месторождения = id_mest;
+      rnd_curr := round(dbms_random.value(0, rnd_all));
+      INSERT INTO KARP.Добыча_ресурсов(ид_добычи, ид_месторождения, ид_поселения, наличие)
+          VALUES (ДР_ид.nextval, id_mest, ид_посел, rnd_curr);
+      SELECT название_ресурса INTO name_res FROM KARP.База_ресурсов WHERE ид_ресурса = (
+          SELECT ид_ресурса FROM KARP.Месторождения_ресурсов WHERE ид_месторождения = id_mest);
+      dbms_output.put_line('Поселение рабочих ' || ид_посел || ' разработало месторождение ' || name_res);
+    exception
+      when no_posel then
+        dbms_output.put_line('Указано несуществующее поселение ' || ид_посел);
+      when no_mest then
+        dbms_output.put_line('Указано несуществующее месторождение ' || ид_мест);
+      when bad_plan then
+        dbms_output.put_line('Добывающее поселение и месторождение находятся на разных планетах');
+      when dubl_d then
+        dbms_output.put_line('Попытка добавления дублирующейся добычи ресурсов');
+      when no_data_found then
+        dbms_output.put_line('На планете нет доступных месторождений');
+      when others then
+        dbms_output.put_line('Ошибка при расширении добывающего поселения ' || ид_посел);
+end Расширить_добычу;
+
+CREATE OR REPLACE PROCEDURE KARP.ТРАНЗ_СДЕЛКА(ид_карв in number, ид_стан in number, ид_посел in number,
+    ид_рес in number, ид_гос in number, колво in number, стоим in number, ret out boolean)
+  is
+    interest number;
+    koeff number;
+    warn number;
+  begin
+    savepoint sv1;
+    UPDATE KARP.Добыча_ресурсов SET наличие = наличие - колво 
+      WHERE ид_поселения = ид_посел and ид_месторождения = (
+        SELECT ид_месторождения FROM KARP.Месторождения_ресурсов
+          WHERE ид_ресурса = ид_рес and ид_планеты = (
+            SELECT ид_планеты FROM KARP.Добывающие_поселения WHERE ид_поселения = ид_посел));
+    UPDATE KARP.Торговые_предложения SET покупка = покупка - колво
+      WHERE ид_станции = ид_стан and ид_ресурса = ид_рес;
+    SELECT в.коэффициент_мощности INTO interest FROM KARP.Корабли_перевозчики к
+        inner join KARP.Виды_кораблей в on к.ид_класса_корабля = в.ид_класса_корабля
+      WHERE к.ид_корабля = ид_карв;
+    SELECT коэффициент_значимости, уровень_опасности into koeff, warn FROM KARP.База_ресурсов WHERE ид_ресурса = ид_рес;
+    interest := round(колво * (0.05 + (0.001 * (interest + 10 * warn))));
+    UPDATE KARP.Государства SET процветание = процветание + koeff * (колво - interest) * стоим
+      WHERE ид_государства = ид_гос;
+    UPDATE KARP.Корабли_перевозчики SET баланс = баланс + interest * стоим
+      WHERE ид_корабля = ид_карв;
+    INSERT INTO KARP.Записи_сделок(ид_сделки, ид_продающего_поселения,
+      ид_покупающей_станции, ид_корабля_перевозчика, ид_ресурса,
+      количество, стоимость) VALUES (
+        ЗС_ид.nextval, ид_посел, ид_стан, ид_карв, ид_рес, колво, стоим);
+    ret := true;
+  exception
+    when no_data_found then
+      dbms_output.put_line('Не найдены данные для выполнения транзакции');
+      rollback to savepoint sv1;
+      ret := false;
+    when others then
+      dbms_output.put_line('Не удалось выполнить транзакцию');
+      rollback to savepoint sv1;
+      ret := false;
+end ТРАНЗ_СДЕЛКА;
+
+CREATE OR REPLACE PROCEDURE KARP.Совершить_сделку(
+  ид_карв number, ид_предл number, ид_посел number)
+  is
+    no_karv exception;
+    no_pred exception;
+    no_posel exception;
+    bad_args exception;
+    exist_k number;
+    exist_pr number;
+    exist_ps number;
+    tru_res number;
+    id_res number;
+    id_stan number;
+    res_type nvarchar2(15);
+    n number;
+    n_max1 number;
+    n_max2 number;
+    stm number;
+    id_gos number;
+    ret boolean;
+  begin
+    SELECT count(*) INTO exist_k FROM KARP.Корабли_перевозчики WHERE ид_корабля = ид_карв;
+    if (exist_k = 0)
+      then raise no_karv;
+    end if;
+    SELECT count(*) INTO exist_pr FROM KARP.Торговые_предложения WHERE ид_предложения = ид_предл;
+    if (exist_pr = 0)
+      then raise no_pred;
+    end if;
+    SELECT count(*) INTO exist_ps FROM KARP.Добывающие_поселения WHERE ид_поселения = ид_посел;
+    if (exist_ps = 0)
+      then raise no_posel;
+    end if;
+    SELECT count(т.ид_ресурса) INTO tru_res FROM KARP.Торговые_предложения т
+        inner join KARP.Месторождения_ресурсов м on т.ид_ресурса = м.ид_ресурса
+        inner join KARP.Добыча_ресурсов д on д.ид_месторождения = м.ид_месторождения
+      WHERE т.ид_предложения = ид_предл and д.ид_поселения = ид_посел;
+    if (tru_res = 0)
+      then raise bad_args;
+    end if;
+    SELECT т.ид_ресурса INTO id_res FROM KARP.Торговые_предложения т
+        inner join KARP.Месторождения_ресурсов м on т.ид_ресурса = м.ид_ресурса
+        inner join KARP.Добыча_ресурсов д on д.ид_месторождения = м.ид_месторождения
+      WHERE т.ид_предложения = ид_предл and д.ид_поселения = ид_посел;
+    SELECT в.коэффициент_мощности INTO n FROM KARP.Виды_кораблей в
+        inner join KARP.Корабли_перевозчики к on к.ид_класса_корабля = в.ид_класса_корабля
+      WHERE к.ид_корабля = ид_карв;
+    SELECT б.тип_ресурса INTO res_type FROM KARP.База_ресурсов б
+        inner join KARP.Торговые_предложения т on б.ид_ресурса = т.ид_ресурса
+      WHERE т.ид_предложения = ид_предл;
+    case res_type
+        when 'акустика'  then n := n * 5;
+        when 'реликвия'  then n := n * 1;
+        when 'растительность'  then n := n * 50;
+        when 'химикат'  then n := n * 4;
+        when 'энергетик'  then n := n * 10;
+        else  n := n * 7;
+      end case;
+      SELECT д.наличие INTO n_max1 FROM KARP.Добывающие_поселения п
+          inner join KARP.Добыча_ресурсов д on п.ид_поселения = д.ид_поселения
+          inner join KARP.Месторождения_ресурсов м on д.ид_месторождения = м.ид_месторождения
+        WHERE п.ид_поселения = ид_посел and м.ид_ресурса = id_res;
+      SELECT покупка INTO n_max2 FROM KARP.Торговые_предложения WHERE ид_предложения = ид_предл;
+      if (n > n_max1)
+        then n := n_max1;
+      end if;
+      if (n > n_max2)
+        then n := n_max2;
+      end if;
+      SELECT ид_станции, стоимость_покупки INTO id_stan, stm FROM KARP.Торговые_предложения WHERE ид_предложения = ид_предл;
+      SELECT п.ид_государства INTO id_gos FROM KARP.Торговые_станции т
+          inner join KARP.Планеты п on т.ид_планеты = п.ид_планеты
+        WHERE т.ид_станции = id_stan;
+        ТРАНЗ_СДЕЛКА(ид_карв, id_stan, ид_посел, id_res, id_gos, n, stm, ret);
+      if (ret = true) then
+        dbms_output.put_line('Операция завершена успешно');
+      else
+        dbms_output.put_line('Отклонено');
+      end if;
+  exception
+      when no_karv then
+        dbms_output.put_line('Не существует корабля с ид ' || ид_карв);
+       when no_pred then
+        dbms_output.put_line('Не существует торгового предложения с ид ' || ид_предл);
+       when no_posel then
+        dbms_output.put_line('Не существует поселения с ид ' || ид_посел);
+      when bad_args then
+        dbms_output.put_line('Поселение ' || ид_посел || ' не добывает запрашиваемый в заказе ' || ид_предл || ' ресурс' );
+      when no_data_found then
+        dbms_output.put_line('Этого не должно быть)');
+      when others then
+        dbms_output.put_line('Неизвестная ошибка при обработке сделки ');
+end Совершить_сделку;
+
+CREATE OR REPLACE PROCEDURE KARP.Совершить_сделку_авто(ид_карв number)
+  is
+    id_res number;
+    stoim number;
+    id_pos number;
+    id_pred number;
+    res_min number;
+    res_max number;
+    pos_max number;
+    n number;
+    res_type nvarchar2(15);
+    n_max1 number;
+    n_max2 number;
+    id_stan number;
+    stm number;
+    id_gos number;
+    res_name nvarchar2(50);
+    st_name nvarchar2(50);
+    pl_name nvarchar2(50);
+    ret boolean;
+    cursor select_posel(ir number) is
+      SELECT п.ид_поселения FROM KARP.Добывающие_поселения п
+          inner join KARP.Добыча_ресурсов д on п.ид_поселения = д.ид_поселения
+          inner join KARP.Месторождения_ресурсов м on д.ид_месторождения = м.ид_месторождения
+      WHERE м.ид_ресурса = ir;
+  begin
+    SELECT min(ид_ресурса), max(ид_ресурса) INTO res_min, res_max FROM KARP.База_ресурсов;
+    loop
+      id_res := round(dbms_random.value(res_min, res_max));
+      SELECT макс_стоимость INTO stoim FROM KARP.Выгодные_предложения WHERE ид_ресурса = id_res;
+      SELECT count(п.ид_поселения) INTO pos_max FROM KARP.Добывающие_поселения п
+          inner join KARP.Добыча_ресурсов д on п.ид_поселения = д.ид_поселения
+          inner join KARP.Месторождения_ресурсов м on д.ид_месторождения = м.ид_месторождения
+       WHERE м.ид_ресурса = id_res;
+      if (pos_max != 0) then
+        begin
+          pos_max := round(dbms_random.value(1, pos_max));
+          open select_posel(id_res);
+          for i in 1..pos_max
+            loop
+              fetch select_posel into id_pos;
+            end loop;
+          close select_posel;
+        end;
+      end if;
+      exit when stoim != -1 and id_pos != 0 and pos_max != 0;
+    end loop;
+    SELECT ид_предложения INTO id_pred FROM KARP.Торговые_предложения
+      WHERE ид_ресурса = id_res and стоимость_покупки = stoim;
+    SELECT в.коэффициент_мощности INTO n FROM KARP.Виды_кораблей в
+        inner join KARP.Корабли_перевозчики к on к.ид_класса_корабля = в.ид_класса_корабля
+      WHERE к.ид_корабля = ид_карв;
+    dbms_output.put_line('n ---> ' || n);
+    SELECT б.тип_ресурса INTO res_type FROM KARP.База_ресурсов б
+        inner join KARP.Торговые_предложения т on б.ид_ресурса = т.ид_ресурса
+      WHERE т.ид_предложения = id_pred;
+    case res_type
+        when 'акустика'  then n := n * 5;
+        when 'реликвия'  then n := n * 1;
+        when 'растительность'  then n := n * 50;
+        when 'химикат'  then n := n * 4;
+        when 'энергетик'  then n := n * 10;
+        else  n := n * 7;
+      end case;
+      SELECT д.наличие INTO n_max1 FROM KARP.Добывающие_поселения п
+          inner join KARP.Добыча_ресурсов д on п.ид_поселения = д.ид_поселения
+          inner join KARP.Месторождения_ресурсов м on д.ид_месторождения = м.ид_месторождения
+        WHERE п.ид_поселения = id_pos and м.ид_ресурса = id_res;
+      SELECT покупка INTO n_max2 FROM KARP.Торговые_предложения WHERE ид_предложения = id_pred;
+      dbms_output.put_line('n --> ' || n || ', nmax1 --> ' || n_max1 || ', nmax2 --> ' || n_max2);
+      if (n > n_max1)
+        then n := n_max1;
+      end if;
+      if (n > n_max2)
+        then n := n_max2;
+      end if;
+      SELECT ид_станции, стоимость_покупки INTO id_stan, stm FROM KARP.Торговые_предложения WHERE ид_предложения = id_pred;
+      SELECT п.ид_государства INTO id_gos FROM KARP.Торговые_станции т
+          inner join KARP.Планеты п on т.ид_планеты = п.ид_планеты
+        WHERE т.ид_станции = id_stan;
+      dbms_output.put_line('ид карав ' || ид_карв || ', ид станц ' || id_stan || ', ид_посел ' || id_pos || ', ид_рес ' || id_res ||
+          ', ид гос ' || id_gos || ', колво' || n || ', стоим' || stm);
+      ТРАНЗ_СДЕЛКА(ид_карв, id_stan, id_pos, id_res, id_gos, n, stm, ret);
+      if (ret = true) then
+        dbms_output.put_line('Операция завершена успешно');
+      else
+        dbms_output.put_line('Отклонено');
+      end if;
+  exception
+    when others then
+        dbms_output.put_line('Неизвестная ошибка при обработке сделки ');
+end Совершить_сделку_авто;
